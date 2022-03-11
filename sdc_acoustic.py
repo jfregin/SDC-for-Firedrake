@@ -62,13 +62,15 @@ slow_solver = LinearVariationalSolver(slow_problem)
 
 outfile = File("acoustic.pvd")
 
-Unodes = [Function(W)]*(M+1)
-Unodes1 = [Function(W)]*(M+1)
+Unodes = [Function(W) for _ in range(M+1)]
+Unodes1 = [Function(W) for _ in range(M+1)]
+fUnodes = [Function(W) for _ in range(M+1)]
 
 def IMEX(Un, dtau):
 
     n = len(dtau)
     Unodes[0].assign(Un)
+    Uf.assign(Un)
     for i in range(n):
         dt.assign(dtau[i])
         U0.assign(Un)
@@ -205,45 +207,64 @@ def f(Uin):
     return Uout
 
 U_SDC = Function(W)
+u11, p11 = split(U_SDC)
 U01 = Function(W)
 u01, p01 = U01.split()
 Q_ = Function(W)
 q0, q1 = Q_.split()
 
-F_SDC = (w * (u1 - un) + phi * (p1 - pn)) * dx + dt * (
-    c_s * (w * (p1.dx(0) - p01.dx(0)) + phi * (u1.dx(0) - u01.dx(0))) * dx
-    - u_mean * (w * (un.dx(0) - u0.dx(0)) + phi * (pn.dx(0) - p0.dx(0))) * dx
-    ) + (w * q0 + phi * q1) * dx
+F_SDC = (w * (u11 - un) + phi * (p11 - pn)) * dx + dt * (
+    c_s * (w * (p11.dx(0) - p01.dx(0)) + phi * (u11.dx(0) - u01.dx(0))) * dx
+    + u_mean * (w * (un.dx(0) - u0.dx(0)) + phi * (pn.dx(0) - p0.dx(0))) * dx
+    ) - (w * q0 + phi * q1) * dx
 prob_SDC = NonlinearVariationalProblem(F_SDC, U_SDC)
 solve_SDC = NonlinearVariationalSolver(prob_SDC)
 
 dtau = np.diff(np.append(a, nodes))
 
-k = 0
+def matmul_UFL(a, b):
+    # b is nx1 array!
+    n = np.shape(a)[0]
+    result = [float(0)]*n
+    for j in range(n):
+        for k in range(n):
+            result[j] += float(a[j,k])*b[k]
+        result[j] = assemble(result[j])
+    return result
 
-while t < 2*dt_:
+
+
+while t < b:
     print("t: ", t)
 
     IMEX(Un, dtau)
 
+    k = 0
     while k < maxk:
-        quad = dot(as_matrix(S),
-                   as_vector([f(Unodes[1]), f(Unodes[2]), f(Unodes[3])]))
-        print(quad[0, :].ufl_shape)
+        k += 1
+
+        for m in range(1, M+1):
+            fUnodes[m].assign(f(Unodes[m]))
+
+        quad = matmul_UFL(S, fUnodes)
+        
+        # quad = dot(as_matrix(S),
+        #            as_vector([f(Unodes[1]), f(Unodes[2]), f(Unodes[3])]))
 
         Unodes1[0].assign(Unodes[0])
-        for m in range(1, M):
+        for m in range(1, M+1):
             dt.assign(dtau[m-1])
             U0.assign(Unodes[m-1])
             U01.assign(Unodes[m])
             Un.assign(Unodes1[m-1])
-            Q_.assign(quad[m-1, :])
+            Q_.assign(quad[m-1])
             q0_, q1_ = Q_.split()
             q0.assign(q0_)
             q1.assign(q1_)
             solve_SDC.solve()
-            print(U_SDC.dat.data.min(), U_SDC.dat.data.max())
             Unodes1[m].assign(U_SDC)
+        for m in range(1, M+1):
+            Unodes[m].assign(Unodes1[m])
 
     Un.assign(Unodes1[-1])
     un, pn = Un.split()
