@@ -2,7 +2,7 @@ from firedrake import (PeriodicIntervalMesh, FunctionSpace, MixedFunctionSpace,
                        TestFunctions, Function, dx, Constant, split,
                        SpatialCoordinate, NonlinearVariationalProblem,
                        NonlinearVariationalSolver, File, exp, cos, assemble,
-                       ExtrudedMesh, DirichletBC)
+                       ExtrudedMesh, DirichletBC, inner, div, sin, pi)
 from gusto import State, PrognosticEquation, OutputParameters, IMEX_Euler, Timestepper
 from gusto.fml.form_manipulation_labelling import Label, drop, all_terms
 from gusto.labels import time_derivative, subject, replace_subject, fast, slow
@@ -23,7 +23,7 @@ class CompressibleBoussinesqEquation(PrognosticEquation):
         field_name = "_".join(self.field_names)
         super().__init__(state, W, field_name)
 
-        Vu = state.spaces("HDiv")
+        Vu = W.sub(0)
         self.bcs['u'].append(DirichletBC(Vu, 0.0, "bottom"))
         self.bcs['u'].append(DirichletBC(Vu, 0.0, "top"))
 
@@ -35,8 +35,8 @@ class CompressibleBoussinesqEquation(PrognosticEquation):
         U = Constant(20)  # mean flow
         N = Constant(0.01)  # Brunt-Väisälä Frequency
 
-        mass_form = time_derivative(subject((inner(w, u)  +  inner(phi, p) +  inner(gamma, b) * dx, X)))
-        fast_form = fast(subject((-div(w) * p +  w[1] * b - phi* N**2 * u[1] + gamma * (-c_s**2 * div(u))) * dx, X))
+        mass_form = time_derivative(subject((inner(w, u)  +  inner(phi, p) +  inner(gamma, b)) * dx, X))
+        fast_form = fast(subject((-div(w) * p -  w[1] * b  * N**2 * u[1] + gamma * (-c_s**2 * div(u))) * dx, X))
         slow_form = slow(subject((inner(w, -U * u.dx(0)) - phi * U * b.dx(0) - gamma * p.dx(0)) * dx, X))
         self.residual = self.residual = mass_form + fast_form + slow_form
 
@@ -286,6 +286,7 @@ b0 = state.fields("b")
 
 # Setup initial conditions
 x = SpatialCoordinate(mesh)
+N = Constant(0.01)  # Brunt-Väisälä Frequency
 b0.interpolate(N*sin(pi*x[1]/Ly)/(1+(x[0]-x0)**2/5000**2))
 
 M = 3
