@@ -5,7 +5,7 @@ from scipy.special import legendre
 import matplotlib.pyplot as plt
 from copy import deepcopy
 
-a = 0                           # time of start
+a = 0                           # time of start/
 b = 3                           # time of end
 n = 512                         # number of spatial nodes
 n_steps = 154.                  # number of time steps
@@ -179,7 +179,7 @@ def Qmatrix(nodes, a):
 
     # for all nodes, get weights for the interval [tleft,node]
     for m in np.arange(M):
-        w = get_weights(M, a, nodes[m],nodes)
+        w = get_weights(M, a, nodes[m], nodes)
         Q[m, 0:] = w
     print("Q: ", Q)
 
