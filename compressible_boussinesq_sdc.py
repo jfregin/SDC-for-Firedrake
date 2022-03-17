@@ -36,7 +36,7 @@ class CompressibleBoussinesqEquation(PrognosticEquation):
         N = Constant(0.01)  # Brunt-Väisälä Frequency
 
         mass_form = time_derivative(subject((inner(w, u)  +  inner(phi, p) +  inner(gamma, b)) * dx, X))
-        fast_form = fast(subject((-div(w) * p -  w[1] * b + gamma * N**2 * u[1] + inner(phi, (c_s**2 * div(u)))) * dx, X))
+        fast_form = fast(subject((-div(w) * p - inner(w, state.k) * b + gamma * N**2 * inner(u, state.k) + inner(phi, (c_s**2 * div(u)))) * dx, X))
         slow_form = slow(subject((inner(w, U * u.dx(0)) + gamma * U * b.dx(0) + phi * U * p.dx(0)) * dx, X))
         self.residual = mass_form + fast_form + slow_form
 
@@ -114,7 +114,8 @@ class IMEX_SDC(object):
                                         drop,
                                         replace_subject(self.Uin.split()))
         Frhs = a - L
-        prob_rhs = NonlinearVariationalProblem(Frhs.form, self.Urhs)
+        bcs = equation.bcs['u']
+        prob_rhs = NonlinearVariationalProblem(Frhs.form, self.Urhs, bcs=bcs)
         self.solver_rhs = NonlinearVariationalSolver(prob_rhs)
 
     def rnw_r(self, b, A=-1, B=1):
