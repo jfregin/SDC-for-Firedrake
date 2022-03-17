@@ -2,7 +2,7 @@ from firedrake import (PeriodicIntervalMesh, FunctionSpace, MixedFunctionSpace,
                        TestFunctions, Function, dx, Constant, split,
                        SpatialCoordinate, NonlinearVariationalProblem,
                        NonlinearVariationalSolver, File, exp, cos, assemble,
-                       ExtrudedMesh, DirichletBC, inner, div, sin, pi)
+                       ExtrudedMesh, DirichletBC, inner, div, grad, sin, pi)
 from gusto import State, PrognosticEquation, OutputParameters, IMEX_Euler, Timestepper
 from gusto.fml.form_manipulation_labelling import Label, drop, all_terms
 from gusto.labels import time_derivative, subject, replace_subject, fast, slow
@@ -36,9 +36,9 @@ class CompressibleBoussinesqEquation(PrognosticEquation):
         N = Constant(0.01)  # Brunt-Väisälä Frequency
 
         mass_form = time_derivative(subject((inner(w, u)  +  inner(phi, p) +  inner(gamma, b)) * dx, X))
-        fast_form = fast(subject((-div(w) * p -  w[1] * b  * N**2 * u[1] + gamma * (-c_s**2 * div(u))) * dx, X))
-        slow_form = slow(subject((inner(w, -U * u.dx(0)) - phi * U * b.dx(0) - gamma * p.dx(0)) * dx, X))
-        self.residual = self.residual = mass_form + fast_form + slow_form
+        fast_form = fast(subject((-div(w) * p -  w[1] * b + gamma * N**2 * u[1] + inner(phi, (c_s**2 * div(u)))) * dx, X))
+        slow_form = slow(subject((inner(w, U * u.dx(0)) + gamma * U * b.dx(0) + phi * U * p.dx(0)) * dx, X))
+        self.residual = mass_form + fast_form + slow_form
 
 
 class IMEX_SDC(object):
@@ -268,7 +268,7 @@ nx = 300  # number of horizontal nodes
 ny = 30  # number of vertical nodes
 Lx = 300000  # 300 km in horizontal direction
 Ly = 10000  # 10 km in vertical direction
-dt = 6  # seconds time step
+dt = 30  # seconds time step
 nsteps = int(3000/dt)  # amount of steps needed to reach t_final = 3000 seconds
 x0 = 100000
 
@@ -290,7 +290,7 @@ N = Constant(0.01)  # Brunt-Väisälä Frequency
 b0.interpolate(N*sin(pi*x[1]/Ly)/(1+(x[0]-x0)**2/5000**2))
 
 M = 3
-maxk = 2
+maxk = 4
 scheme = IMEX_SDC(state, M, maxk)
 timestepper = Timestepper(state, ((eqn, scheme),))
 timestepper.run(0, nsteps*dt)
