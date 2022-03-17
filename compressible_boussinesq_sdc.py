@@ -1,13 +1,14 @@
 from firedrake import (PeriodicIntervalMesh, FunctionSpace, MixedFunctionSpace,
-                       TestFunctions, Function, dx, Constant, split,
+                       TestFunctions, Function, dx, Constant, split, as_vector,
                        SpatialCoordinate, NonlinearVariationalProblem,
                        NonlinearVariationalSolver, File, exp, cos, assemble,
                        ExtrudedMesh, DirichletBC, inner, div, grad, sin, pi)
-from gusto import State, PrognosticEquation, OutputParameters, IMEX_Euler, Timestepper
-from gusto.fml.form_manipulation_labelling import Label, drop, all_terms
-from gusto.labels import time_derivative, subject, replace_subject, fast, slow
+from gusto import State, PrognosticEquation, OutputParameters, IMEX_Euler, Timestepper, SSPRK3, advection_form
+from gusto.fml.form_manipulation_labelling import Label, drop, all_terms, Term
+from gusto.labels import time_derivative, subject, replace_subject, fast, slow,  advecting_velocity
 import numpy as np
 import scipy
+import ufl
 from scipy.special import legendre
 
 
@@ -35,9 +36,19 @@ class CompressibleBoussinesqEquation(PrognosticEquation):
         U = Constant(20)  # mean flow
         N = Constant(0.01)  # Brunt-Väisälä Frequency
 
+        ubar = Function(Vu).project(as_vector((U, Constant(0))))
+
         mass_form = time_derivative(subject((inner(w, u)  +  inner(phi, p) +  inner(gamma, b)) * dx, X))
         fast_form = fast(subject((-div(w) * p - inner(w, state.k) * b + gamma * N**2 * inner(u, state.k) + inner(phi, (c_s**2 * div(u)))) * dx, X))
-        slow_form = slow(subject((inner(w, U * u.dx(0)) + gamma * U * b.dx(0) + phi * U * p.dx(0)) * dx, X))
+        uadv = advection_form(state, w, u)
+        badv = advection_form(state, gamma, b)
+        padv = advection_form(state, phi, p)
+        slow_form = slow(
+            subject(uadv + badv + padv, X).label_map(
+                all_terms,
+                lambda t: Term(ufl.replace(
+                    t.form, {t.get(advecting_velocity): ubar}), t.labels))
+        )
         self.residual = mass_form + fast_form + slow_form
 
 
@@ -269,15 +280,15 @@ nx = 300  # number of horizontal nodes
 ny = 30  # number of vertical nodes
 Lx = 300000  # 300 km in horizontal direction
 Ly = 10000  # 10 km in vertical direction
-dt = 30  # seconds time step
+dt = 3  # seconds time step
 nsteps = int(3000/dt)  # amount of steps needed to reach t_final = 3000 seconds
 x0 = 100000
 
 
 m = PeriodicIntervalMesh(nx, Lx)
 mesh = ExtrudedMesh(m, layers=ny-1, layer_height=Ly/(ny-1))
-
-output = OutputParameters(dirname="Compressible_Boussinesq")
+print(Ly/(ny-1), Lx/nx, dt, 20*dt*nx/Lx, 20*dt*(ny-1)/Ly)
+output = OutputParameters(dirname="Compressible_Boussinesq_ibp")
 
 state = State(mesh, dt=dt, output=output)
 
@@ -293,6 +304,7 @@ b0.interpolate(N*sin(pi*x[1]/Ly)/(1+(x[0]-x0)**2/5000**2))
 M = 3
 maxk = 4
 scheme = IMEX_SDC(state, M, maxk)
+# scheme = SSPRK3(state)
 timestepper = Timestepper(state, ((eqn, scheme),))
 timestepper.run(0, nsteps*dt)
 
