@@ -3,9 +3,9 @@ from firedrake import (PeriodicIntervalMesh, FunctionSpace, MixedFunctionSpace,
                        SpatialCoordinate, NonlinearVariationalProblem,
                        NonlinearVariationalSolver, File, exp, cos, assemble,
                        ExtrudedMesh, DirichletBC, inner, div, grad, sin, pi)
-from gusto import State, PrognosticEquation, OutputParameters, IMEX_Euler, Timestepper, SSPRK3, advection_form
+from gusto import State, PrognosticEquation, OutputParameters, IMEX_Euler, Timestepper, SSPRK3, advection_form, IMEX_SDC
 from gusto.fml.form_manipulation_labelling import Label, drop, all_terms, Term
-from gusto.labels import time_derivative, subject, replace_subject, fast, slow,  advecting_velocity
+from gusto.labels import time_derivative, subject, replace_subject, implicit, explicit,  advecting_velocity
 import numpy as np
 import scipy
 import ufl
@@ -37,22 +37,23 @@ class CompressibleBoussinesqEquation(PrognosticEquation):
         N = Constant(0.01)  # Brunt-Väisälä Frequency
 
         ubar = Function(Vu).project(as_vector((U, Constant(0))))
+        self.ubar = ubar
 
         mass_form = time_derivative(subject((inner(w, u)  +  inner(phi, p) +  inner(gamma, b)) * dx, X))
-        fast_form = fast(subject((-div(w) * p - inner(w, state.k) * b + gamma * N**2 * inner(u, state.k) + inner(phi, (c_s**2 * div(u)))) * dx, X))
+        implicit_form = implicit(subject((-div(w) * p - inner(w, state.k) * b + gamma * N**2 * inner(u, state.k) + inner(phi, (c_s**2 * div(u)))) * dx, X))
         uadv = advection_form(state, w, u)
         badv = advection_form(state, gamma, b)
         padv = advection_form(state, phi, p)
-        slow_form = slow(
+        explicit_form = explicit(
             subject(uadv + badv + padv, X).label_map(
                 all_terms,
                 lambda t: Term(ufl.replace(
                     t.form, {t.get(advecting_velocity): ubar}), t.labels))
         )
-        self.residual = mass_form + fast_form + slow_form
+        self.residual = mass_form + implicit_form + explicit_form
 
 
-class IMEX_SDC(object):
+class local_IMEX_SDC(object):
 
     def __init__(self, state, M, maxk):
 
@@ -87,23 +88,24 @@ class IMEX_SDC(object):
 
         F = equation.residual.label_map(lambda t: t.has_label(time_derivative),
                                         map_if_false=lambda t: dt*t)
-        F_imp = F.label_map(lambda t: any(t.has_label(time_derivative, fast)),
+
+        F_imp = F.label_map(lambda t: any(t.has_label(time_derivative, implicit)),
                             replace_subject(self.U_SDC),
                             drop)
 
-        F_exp = F.label_map(lambda t: any(t.has_label(time_derivative, slow)),
+        F_exp = F.label_map(lambda t: any(t.has_label(time_derivative, explicit)),
                             replace_subject(self.Un.split()),
                             drop)
         F_exp = F_exp.label_map(lambda t: t.has_label(time_derivative),
                                 lambda t: -1*t)
 
-        F01 = F.label_map(lambda t: t.has_label(fast),
+        F01 = F.label_map(lambda t: t.has_label(implicit),
                           replace_subject(self.U01.split()),
                           drop)
 
         F01 = F01.label_map(all_terms, lambda t: -1*t)
         
-        F0 = F.label_map(lambda t: t.has_label(slow),
+        F0 = F.label_map(lambda t: t.has_label(explicit),
                           replace_subject(self.U0.split()),
                           drop)
         F0 = F0.label_map(all_terms, lambda t: -1*t)
@@ -280,7 +282,7 @@ nx = 300  # number of horizontal nodes
 ny = 30  # number of vertical nodes
 Lx = 300000  # 300 km in horizontal direction
 Ly = 10000  # 10 km in vertical direction
-dt = 3  # seconds time step
+dt = 30  # seconds time step
 nsteps = int(3000/dt)  # amount of steps needed to reach t_final = 3000 seconds
 x0 = 100000
 
@@ -302,7 +304,7 @@ N = Constant(0.01)  # Brunt-Väisälä Frequency
 b0.interpolate(N*sin(pi*x[1]/Ly)/(1+(x[0]-x0)**2/5000**2))
 
 M = 3
-maxk = 4
+maxk = 2
 scheme = IMEX_SDC(state, M, maxk)
 # scheme = SSPRK3(state)
 timestepper = Timestepper(state, ((eqn, scheme),))
