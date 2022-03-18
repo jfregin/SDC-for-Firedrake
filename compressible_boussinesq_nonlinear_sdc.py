@@ -42,12 +42,7 @@ class CompressibleBoussinesqEquation(PrognosticEquation):
         uadv = advection_form(state, w, u)
         badv = advection_form(state, gamma, b)
         padv = advection_form(state, phi, p)
-        explicit_form = explicit(
-            subject(uadv + badv + padv, X).label_map(
-                all_terms,
-                lambda t: Term(ufl.replace(
-                    t.form, {t.get(advecting_velocity): u}), t.labels))
-        )
+        explicit_form = explicit(subject(uadv + badv + padv, X))
         self.residual = mass_form + implicit_form + explicit_form
 
 
